@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 type Particle = {
   x: number;
@@ -13,6 +13,17 @@ type Particle = {
   alpha: number;
   size: number;
   seed: number;
+};
+
+type GateParticle = {
+  sx: number;
+  sy: number;
+  tx: number;
+  ty: number;
+  size: number;
+  delay: number;
+  spin: number;
+  tone: number;
 };
 
 const chapters = [
@@ -154,6 +165,224 @@ const accents = [
   [104, 174, 222],
   [152, 184, 198],
 ];
+
+function ForgeGate({
+  onUnlock,
+  onComplete,
+}: {
+  onUnlock: () => void;
+  onComplete: () => void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const progressRef = useRef<HTMLSpanElement>(null);
+  const unlockRef = useRef(onUnlock);
+  const completeRef = useRef(onComplete);
+  const [unlocking, setUnlocking] = useState(false);
+
+  useEffect(() => {
+    unlockRef.current = onUnlock;
+    completeRef.current = onComplete;
+  }, [onComplete, onUnlock]);
+
+  useLayoutEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const context = canvas.getContext("2d");
+    if (!context) return;
+
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const unlockAt = reducedMotion ? 520 : 2780;
+    const fadeDuration = reducedMotion ? 180 : 820;
+    let width = Math.max(1, window.innerWidth);
+    let height = Math.max(1, window.innerHeight);
+    let particles: GateParticle[] = [];
+    let frame = 0;
+    let finishTimer = 0;
+    let hasUnlocked = false;
+    let start = performance.now();
+
+    document.documentElement.classList.add("forge-locked");
+    document.body.classList.add("forge-locked");
+    window.scrollTo({ top: 0, left: 0 });
+
+    const clamp = (value: number, minimum = 0, maximum = 1) =>
+      Math.min(maximum, Math.max(minimum, value));
+
+    const build = () => {
+      width = Math.max(1, window.innerWidth);
+      height = Math.max(1, window.innerHeight);
+      const dpr = Math.min(window.devicePixelRatio || 1, 1.55);
+      canvas.width = Math.round(width * dpr);
+      canvas.height = Math.round(height * dpr);
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
+      context.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      const mask = document.createElement("canvas");
+      mask.width = Math.ceil(width);
+      mask.height = Math.ceil(height);
+      const maskContext = mask.getContext("2d", { willReadFrequently: true });
+      if (!maskContext) return;
+
+      const swordHeight = Math.min(height * 0.76, width * 1.42, 780);
+      const centerX = width / 2;
+      const top = height / 2 - swordHeight / 2;
+      const bladeEnd = top + swordHeight * 0.67;
+      const bladeWidth = Math.max(28, Math.min(68, swordHeight * 0.082));
+      const guardY = bladeEnd + bladeWidth * 0.15;
+      const handleBottom = top + swordHeight * 0.94;
+
+      maskContext.fillStyle = "#fff";
+      maskContext.beginPath();
+      maskContext.moveTo(centerX, top);
+      maskContext.lineTo(centerX + bladeWidth * 0.5, top + bladeWidth * 1.08);
+      maskContext.lineTo(centerX + bladeWidth * 0.34, bladeEnd);
+      maskContext.lineTo(centerX, bladeEnd + bladeWidth * 0.34);
+      maskContext.lineTo(centerX - bladeWidth * 0.34, bladeEnd);
+      maskContext.lineTo(centerX - bladeWidth * 0.5, top + bladeWidth * 1.08);
+      maskContext.closePath();
+      maskContext.fill();
+
+      maskContext.beginPath();
+      maskContext.moveTo(centerX - bladeWidth * 1.72, guardY - bladeWidth * 0.16);
+      maskContext.lineTo(centerX - bladeWidth * 0.42, guardY + bladeWidth * 0.24);
+      maskContext.lineTo(centerX, guardY + bladeWidth * 0.04);
+      maskContext.lineTo(centerX + bladeWidth * 0.42, guardY + bladeWidth * 0.24);
+      maskContext.lineTo(centerX + bladeWidth * 1.72, guardY - bladeWidth * 0.16);
+      maskContext.lineTo(centerX + bladeWidth * 1.55, guardY + bladeWidth * 0.35);
+      maskContext.lineTo(centerX, guardY + bladeWidth * 0.52);
+      maskContext.lineTo(centerX - bladeWidth * 1.55, guardY + bladeWidth * 0.35);
+      maskContext.closePath();
+      maskContext.fill();
+
+      maskContext.fillRect(centerX - bladeWidth * 0.17, guardY + bladeWidth * 0.38, bladeWidth * 0.34, handleBottom - guardY);
+      maskContext.beginPath();
+      maskContext.moveTo(centerX, handleBottom - bladeWidth * 0.05);
+      maskContext.lineTo(centerX + bladeWidth * 0.36, handleBottom + bladeWidth * 0.34);
+      maskContext.lineTo(centerX, handleBottom + bladeWidth * 0.72);
+      maskContext.lineTo(centerX - bladeWidth * 0.36, handleBottom + bladeWidth * 0.34);
+      maskContext.closePath();
+      maskContext.fill();
+
+      const pixels = maskContext.getImageData(0, 0, mask.width, mask.height).data;
+      const step = width < 560 ? 7 : 6;
+      let seed = 0x5232026;
+      const random = () => {
+        seed = (seed * 1664525 + 1013904223) >>> 0;
+        return seed / 4294967296;
+      };
+      const next: GateParticle[] = [];
+      let index = 0;
+
+      for (let y = Math.max(0, Math.floor(top)); y < Math.min(height, handleBottom + bladeWidth); y += step) {
+        for (let x = Math.max(0, Math.floor(centerX - bladeWidth * 1.8)); x < Math.min(width, centerX + bladeWidth * 1.8); x += step) {
+          const offset = (Math.floor(y) * mask.width + Math.floor(x)) * 4;
+          if (pixels[offset + 3] < 120 || random() < 0.1) continue;
+
+          const sourceMode = index % 5;
+          let sx = random() * width;
+          let sy = random() * height;
+          if (sourceMode === 0) {
+            sy = (Math.floor(random() * 9) + 0.5) * (height / 9) + (random() - 0.5) * 18;
+          } else if (sourceMode === 1) {
+            sx = x < centerX ? -24 - random() * width * 0.12 : width + 24 + random() * width * 0.12;
+          } else if (sourceMode === 2) {
+            sy = random() > 0.5 ? -30 - random() * 90 : height + 30 + random() * 90;
+          } else if (sourceMode === 3) {
+            const side = random() > 0.5 ? 0.08 : 0.72;
+            sx = width * (side + random() * 0.2);
+            sy = height * (0.12 + random() * 0.76);
+          }
+
+          next.push({
+            sx,
+            sy,
+            tx: x,
+            ty: y,
+            size: 0.8 + random() * (width < 560 ? 1.5 : 2.1),
+            delay: random(),
+            spin: random() * 2 - 1,
+            tone: y > guardY - bladeWidth * 0.2 ? 1 : random(),
+          });
+          index += 1;
+        }
+      }
+
+      particles = next;
+      start = performance.now();
+    };
+
+    const render = (time: number) => {
+      const elapsed = time - start;
+      context.clearRect(0, 0, width, height);
+
+      const assembly = reducedMotion ? 1 : clamp((elapsed - 180) / 2180);
+      const displayedProgress = Math.round(assembly * 100);
+      if (progressRef.current) progressRef.current.textContent = String(displayedProgress).padStart(3, "0");
+
+      for (const particle of particles) {
+        const local = reducedMotion ? 1 : clamp((assembly - particle.delay * 0.2) / 0.8);
+        const eased = 1 - Math.pow(1 - local, 4);
+        const orbit = Math.sin(local * Math.PI) * (1 - local) * (70 + Math.abs(particle.spin) * 150);
+        const x = particle.sx + (particle.tx - particle.sx) * eased + Math.cos(particle.delay * 18 + local * 7) * orbit * particle.spin;
+        const y = particle.sy + (particle.ty - particle.sy) * eased + Math.sin(particle.delay * 15 + local * 6) * orbit;
+        const ignition = clamp(elapsed / 360) * (0.26 + local * 0.74);
+        const isHilt = particle.tone === 1;
+        const heat = Math.max(0, 1 - Math.abs(assembly - 0.72) * 5.2) * (0.4 + particle.delay * 0.6);
+        const red = Math.round((isHilt ? 190 : 210) + heat * 42);
+        const green = Math.round((isHilt ? 126 : 205) - heat * 82);
+        const blue = Math.round((isHilt ? 58 : 183) - heat * 125);
+        context.fillStyle = `rgba(${red}, ${green}, ${blue}, ${ignition})`;
+        context.fillRect(x, y, particle.size, particle.size);
+      }
+
+      if (assembly > 0.91) {
+        const lock = clamp((assembly - 0.91) / 0.09);
+        context.save();
+        context.globalCompositeOperation = "screen";
+        context.fillStyle = `rgba(240, 231, 210, ${lock * 0.13})`;
+        context.fillRect(width / 2 - 1, height * 0.12, 2, height * 0.76);
+        context.restore();
+      }
+
+      if (!hasUnlocked && elapsed >= unlockAt) {
+        hasUnlocked = true;
+        setUnlocking(true);
+        unlockRef.current();
+        finishTimer = window.setTimeout(() => completeRef.current(), fadeDuration);
+      }
+
+      frame = requestAnimationFrame(render);
+    };
+
+    const onResize = () => build();
+    build();
+    frame = requestAnimationFrame(render);
+    window.addEventListener("resize", onResize);
+
+    return () => {
+      cancelAnimationFrame(frame);
+      window.clearTimeout(finishTimer);
+      window.removeEventListener("resize", onResize);
+      document.documentElement.classList.remove("forge-locked");
+      document.body.classList.remove("forge-locked");
+    };
+  }, []);
+
+  return (
+    <div className={unlocking ? "forge-gate is-unlocking" : "forge-gate"} role="status" aria-live="polite" aria-label="Forging the interface">
+      <canvas ref={canvasRef} className="forge-gate-canvas" aria-hidden="true" />
+      <div className="forge-gate-reticle" aria-hidden="true"><span /><span /></div>
+      <div className="forge-gate-copy">
+        <p>FORGING THE INTERFACE</p>
+        <div><span ref={progressRef}>000</span><i>%</i></div>
+        <small>Pixels are becoming the blade</small>
+      </div>
+      <div className="forge-gate-index" aria-hidden="true">MK / SYSTEMS / 2026</div>
+    </div>
+  );
+}
 
 function PixelSword({ activeChapter = 0, intro = false }: { activeChapter?: number; intro?: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -330,6 +559,7 @@ export default function Home() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeChapter, setActiveChapter] = useState(0);
   const [scrolled, setScrolled] = useState(false);
+  const [introStage, setIntroStage] = useState<"forging" | "unlocking" | "complete">("forging");
 
   useEffect(() => {
     const revealObserver = new IntersectionObserver(
@@ -371,7 +601,18 @@ export default function Home() {
   const closeMenu = () => setMenuOpen(false);
 
   return (
-    <main>
+    <>
+      {introStage !== "complete" && (
+        <ForgeGate
+          onUnlock={() => setIntroStage("unlocking")}
+          onComplete={() => setIntroStage("complete")}
+        />
+      )}
+      <main
+        className={introStage === "forging" ? "site-shell is-forging" : "site-shell is-ready"}
+        aria-busy={introStage !== "complete"}
+        inert={introStage === "forging" ? true : undefined}
+      >
       <header className={scrolled ? "site-header is-scrolled" : "site-header"}>
         <a className="identity" href="#top" onClick={closeMenu} aria-label="Mahesh Karthikeyan home">
           Mahesh Karthikeyan
@@ -411,7 +652,7 @@ export default function Home() {
         </div>
 
         <div className="hero-sword">
-          <PixelSword intro />
+          {introStage !== "forging" && <PixelSword intro />}
           <div className="forge-readout" aria-hidden="true"><span /> aggregating pixels</div>
         </div>
 
@@ -441,7 +682,7 @@ export default function Home() {
                 <span className={activeChapter === index ? "active" : ""} key={chapter.label}>{String(index + 1).padStart(2, "0")}</span>
               ))}
             </div>
-            <PixelSword activeChapter={activeChapter} />
+            {introStage !== "forging" && <PixelSword activeChapter={activeChapter} />}
             <div className="sword-mode" aria-live="polite">
               <span>{String(activeChapter + 1).padStart(2, "0")}</span>
               {chapters[activeChapter].mode}
@@ -531,6 +772,7 @@ export default function Home() {
         <p>UCLA CS · Systems · Product · Chess</p>
         <span>© {new Date().getFullYear()}</span>
       </footer>
-    </main>
+      </main>
+    </>
   );
 }
