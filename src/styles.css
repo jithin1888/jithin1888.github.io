@@ -183,6 +183,18 @@ body.forge-locked {
   font-size: 8px;
 }
 
+.cursor-forge {
+  position: fixed;
+  z-index: 220;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  contain: strict;
+}
+
 @keyframes gate-turn { to { transform: translate(-50%, -50%) rotate(360deg); } }
 @keyframes forge-axis { to { transform: scaleY(1); } }
 
@@ -818,9 +830,14 @@ footer span:last-child { justify-self: end; }
   .contact-forge > a { font-size: 10px; }
 }
 
+@media (pointer: coarse) {
+  .cursor-forge { display: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
   .reveal { opacity: 1; transform: none; }
   .forge-gate-reticle { animation: none; }
+  .cursor-forge { display: none; }
 }

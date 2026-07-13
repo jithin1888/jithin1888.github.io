@@ -26,6 +26,24 @@ type GateParticle = {
   tone: number;
 };
 
+type CursorMote = {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  size: number;
+  seed: number;
+};
+
+type CursorSpark = {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number;
+  size: number;
+};
+
 const chapters = [
   {
     label: "Runtime / UCLA PSS Lab",
@@ -153,9 +171,7 @@ const disciplines = [
 const honors = [
   ["US Chess Top 100 Juniors", "Competitive chess"],
   ["LA Hacks Winner", "Best Use of ElevenLabs · 1st of 76 teams"],
-  ["AIME Qualifier", "Mathematics"],
   ["USNCO Finalist", "Chemistry"],
-  ["Valedictorian", "American High School"],
 ];
 
 const accents = [
@@ -384,6 +400,191 @@ function ForgeGate({
   );
 }
 
+const cursorSwordFormation: Array<[number, number]> = [
+  [-34, 0], [-29, -1], [-29, 1], [-24, -2], [-24, 2], [-19, -2.5], [-19, 2.5],
+  [-14, -3], [-14, 3], [-9, -3], [-9, 3], [-4, -3.5], [-4, 3.5], [1, -3], [1, 3],
+  [5, -12], [5, -8], [5, 8], [5, 12], [8, -5], [8, 5], [9, 0], [14, -1.5], [14, 1.5],
+  [19, -1.5], [19, 1.5], [24, 0], [28, -2], [28, 2], [32, 0],
+];
+
+function PixelCursorField() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const finePointer = window.matchMedia("(pointer: fine)").matches;
+    if (reducedMotion || !finePointer) return;
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const context = canvas.getContext("2d", { alpha: true });
+    if (!context) return;
+
+    let width = Math.max(1, window.innerWidth);
+    let height = Math.max(1, window.innerHeight);
+    let frame = 0;
+    let hot = false;
+    const pointer = { x: 0, y: 0, angle: -Math.PI / 2, speed: 0, lastMove: 0, active: false };
+    const motes: CursorMote[] = cursorSwordFormation.map((_, index) => ({
+      x: 0,
+      y: 0,
+      vx: 0,
+      vy: 0,
+      size: 1 + (index % 4) * 0.35,
+      seed: (index * 0.61803398875) % 1,
+    }));
+    const sparks: CursorSpark[] = [];
+
+    const resize = () => {
+      width = Math.max(1, window.innerWidth);
+      height = Math.max(1, window.innerHeight);
+      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+      canvas.width = Math.round(width * dpr);
+      canvas.height = Math.round(height * dpr);
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
+      context.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+
+    const addSpark = (x: number, y: number, vx: number, vy: number, life = 1) => {
+      sparks.push({ x, y, vx, vy, life, size: 0.8 + Math.random() * 2.2 });
+      if (sparks.length > 220) sparks.splice(0, sparks.length - 220);
+    };
+
+    const onPointerMove = (event: PointerEvent) => {
+      const nextX = event.clientX;
+      const nextY = event.clientY;
+      const target = event.target as Element | null;
+      hot = Boolean(target?.closest?.("a, button"));
+
+      if (!pointer.active) {
+        pointer.x = nextX;
+        pointer.y = nextY;
+        pointer.active = true;
+        for (const mote of motes) {
+          mote.x = nextX;
+          mote.y = nextY;
+        }
+      } else {
+        const dx = nextX - pointer.x;
+        const dy = nextY - pointer.y;
+        const distance = Math.hypot(dx, dy);
+        if (distance > 0.5) pointer.angle = Math.atan2(dy, dx);
+        pointer.speed = Math.min(42, distance);
+
+        const sparkCount = Math.min(8, Math.floor(distance / 9));
+        for (let index = 0; index < sparkCount; index += 1) {
+          const amount = sparkCount <= 1 ? 0 : index / (sparkCount - 1);
+          const x = pointer.x + dx * amount;
+          const y = pointer.y + dy * amount;
+          addSpark(
+            x + (Math.random() - 0.5) * 5,
+            y + (Math.random() - 0.5) * 5,
+            -dx * 0.025 + (Math.random() - 0.5) * 1.3,
+            -dy * 0.025 + (Math.random() - 0.5) * 1.3,
+            0.7 + Math.random() * 0.3,
+          );
+        }
+        pointer.x = nextX;
+        pointer.y = nextY;
+      }
+      pointer.lastMove = performance.now();
+    };
+
+    const onPointerDown = (event: PointerEvent) => {
+      if (!pointer.active) return;
+      for (let index = 0; index < 34; index += 1) {
+        const angle = (index / 34) * Math.PI * 2 + Math.random() * 0.16;
+        const velocity = 1.4 + Math.random() * 4.8;
+        addSpark(event.clientX, event.clientY, Math.cos(angle) * velocity, Math.sin(angle) * velocity);
+      }
+    };
+
+    const onPointerLeave = () => {
+      pointer.active = false;
+    };
+
+    const render = (time: number) => {
+      context.clearRect(0, 0, width, height);
+      if (pointer.active) {
+        const idle = time - pointer.lastMove > 430;
+        const cos = Math.cos(pointer.angle);
+        const sin = Math.sin(pointer.angle);
+
+        motes.forEach((mote, index) => {
+          let targetX: number;
+          let targetY: number;
+          if (idle) {
+            const [forward, across] = cursorSwordFormation[index];
+            targetX = pointer.x + forward * cos - across * sin;
+            targetY = pointer.y + forward * sin + across * cos;
+          } else if (index === 0) {
+            targetX = pointer.x;
+            targetY = pointer.y;
+          } else {
+            const leader = motes[index - 1];
+            const spacing = 2.4 + index * 0.025;
+            targetX = leader.x - cos * spacing;
+            targetY = leader.y - sin * spacing;
+          }
+
+          const spring = idle ? 0.19 : Math.max(0.085, 0.26 - index * 0.0045);
+          const damping = idle ? 0.66 : 0.72;
+          mote.vx = (mote.vx + (targetX - mote.x) * spring) * damping;
+          mote.vy = (mote.vy + (targetY - mote.y) * spring) * damping;
+          mote.x += mote.vx;
+          mote.y += mote.vy;
+
+          const shimmer = 0.62 + Math.sin(time * 0.006 + mote.seed * 12) * 0.2;
+          const alpha = idle ? 0.88 : Math.max(0.15, shimmer * (1 - index / (motes.length * 1.15)));
+          const color = hot
+            ? `rgba(255, 120, 42, ${alpha})`
+            : index % 5 === 0
+              ? `rgba(216, 162, 92, ${alpha})`
+              : `rgba(240, 231, 210, ${alpha})`;
+          context.fillStyle = color;
+          const size = idle && (index === 0 || index > 26) ? mote.size + 0.8 : mote.size;
+          context.fillRect(Math.round(mote.x), Math.round(mote.y), size, size);
+        });
+      }
+
+      for (let index = sparks.length - 1; index >= 0; index -= 1) {
+        const spark = sparks[index];
+        spark.x += spark.vx;
+        spark.y += spark.vy;
+        spark.vx *= 0.975;
+        spark.vy = spark.vy * 0.975 + 0.012;
+        spark.life -= 0.022;
+        if (spark.life <= 0) {
+          sparks.splice(index, 1);
+          continue;
+        }
+        context.fillStyle = `rgba(240, 106, 36, ${spark.life * 0.82})`;
+        context.fillRect(Math.round(spark.x), Math.round(spark.y), spark.size, spark.size);
+      }
+
+      frame = requestAnimationFrame(render);
+    };
+
+    resize();
+    frame = requestAnimationFrame(render);
+    window.addEventListener("resize", resize);
+    window.addEventListener("pointermove", onPointerMove, { passive: true });
+    window.addEventListener("pointerdown", onPointerDown, { passive: true });
+    document.documentElement.addEventListener("pointerleave", onPointerLeave);
+
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("resize", resize);
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerdown", onPointerDown);
+      document.documentElement.removeEventListener("pointerleave", onPointerLeave);
+    };
+  }, []);
+
+  return <canvas ref={canvasRef} className="cursor-forge" aria-hidden="true" />;
+}
+
 function PixelSword({ activeChapter = 0, intro = false }: { activeChapter?: number; intro?: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const activeRef = useRef(activeChapter);
@@ -608,6 +809,7 @@ export default function Home() {
           onComplete={() => setIntroStage("complete")}
         />
       )}
+      {introStage === "complete" && <PixelCursorField />}
       <main
         className={introStage === "forging" ? "site-shell is-forging" : "site-shell is-ready"}
         aria-busy={introStage !== "complete"}
